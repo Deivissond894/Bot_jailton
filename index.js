@@ -98,9 +98,12 @@ const client = new Client({
   authStrategy: new LocalAuth()
 });
 
-client.on('qr', (qr) => {
-  qrcode.generate(qr, { small: true });
+client.on('qr', qr => {
+    console.log("====== COPIE ESSE TEXTO DO QR CODE ======");
+    console.log(qr);
+    console.log("Cole em um conversor online de QR para gerar a imagem.");
 });
+
 
 client.on('ready', async () => {
   console.log('Assistente está pronta!');
