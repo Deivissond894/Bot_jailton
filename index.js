@@ -5,7 +5,7 @@ const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const cron = require('node-cron');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const credentials = require('./credentials.json');
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 
 const idDaPlanilha = '1e9HEEsBHelQsAJynGldKxE8POO5xQXYtoOWyYt2gnGU';
 const numerosAutorizados = ['557191994913@c.us', '557197232017@c.us'];
