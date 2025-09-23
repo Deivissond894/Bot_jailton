@@ -5,8 +5,12 @@ const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const cron = require('node-cron');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
+const express = require('express'); // 🚀 novo
+
+// carrega as credenciais direto da env
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 
+// ID da planilha
 const idDaPlanilha = '1e9HEEsBHelQsAJynGldKxE8POO5xQXYtoOWyYt2gnGU';
 const numerosAutorizados = ['557191994913@c.us', '557197232017@c.us'];
 
@@ -99,11 +103,10 @@ const client = new Client({
 });
 
 client.on('qr', qr => {
-    console.log("====== COPIE ESSE TEXTO DO QR CODE ======");
-    console.log(qr);
-    console.log("Cole em um conversor online de QR para gerar a imagem.");
+  console.log("====== COPIE ESSE TEXTO DO QR CODE ======");
+  console.log(qr);
+  console.log("Cole em um conversor online de QR para gerar a imagem.");
 });
-
 
 client.on('ready', async () => {
   console.log('Assistente está pronta!');
@@ -112,9 +115,10 @@ client.on('ready', async () => {
     await doc.useServiceAccountAuth(credentials);
     await doc.loadInfo();
     planilhaCarregada = true;
-    console.log('Planilha "Agendamento - Jailton" conectada com sucesso!');
+    console.log(`✅ Conectado à planilha: ${doc.title}`);
     await verificarEEnviarLembretes();
-  } catch (_) {
+  } catch (err) {
+    console.error("❌ Erro ao conectar à planilha:", err.message);
     return;
   }
 
@@ -252,3 +256,15 @@ client.on('message', async message => {
 });
 
 client.initialize();
+
+// ==============================================================================
+// SEÇÃO EXTRA: SERVIDOR EXPRESS PARA O RENDER
+// ==============================================================================
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => res.send('🚀 Bot rodando com sucesso no Render!'));
+
+app.listen(PORT, () => {
+  console.log(`Servidor Express ativo na porta ${PORT}`);
+});
