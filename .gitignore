@@ -1,0 +1,10 @@
+node_modules/
+.wwebjs_auth/
+.wwebjs_cache/
+credentials.json
+.env
+logs/
+*.log
+.vscode/
+.DS_Store
+Thumbs.db
