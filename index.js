@@ -5,7 +5,7 @@ const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const cron = require('node-cron');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const express = require('express'); // 🚀 novo
+const express = require('express'); // 🚀 servidor para Render
 
 // carrega as credenciais direto da env
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
@@ -92,7 +92,9 @@ async function verificarEEnviarLembretes() {
     for (const numero of numerosAutorizados) {
       await client.sendMessage(numero, statusMsg);
     }
-  } catch (_) {}
+  } catch (err) {
+    console.error("Erro na verificação de lembretes:", err.message);
+  }
 }
 
 // ==============================================================================
@@ -110,9 +112,14 @@ client.on('qr', qr => {
 
 client.on('ready', async () => {
   console.log('Assistente está pronta!');
-
+  
   try {
-    await doc.useServiceAccountAuth(credentials);
+    // 🔥 Ajuste para funcionar com google-spreadsheet atual
+    await doc.useServiceAccountAuth({
+      client_email: credentials.client_email,
+      private_key: credentials.private_key.replace(/\\n/g, '\n'),
+    });
+
     await doc.loadInfo();
     planilhaCarregada = true;
     console.log(`✅ Conectado à planilha: ${doc.title}`);
