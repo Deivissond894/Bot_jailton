@@ -17,6 +17,7 @@
     "node": "20.x"
   },
   "dependencies": {
+    "express": "^5.1.0",
     "google-spreadsheet": "^5.0.2",
     "googleapis": "^159.0.0",
     "node-cron": "^4.2.1",
