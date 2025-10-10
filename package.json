@@ -16,6 +16,7 @@
   "author": "Chefe Bravo",
   "license": "ISC",
   "dependencies": {
+    "puppeteer": "^22.13.1",
     "express": "^4.19.2",
     "google-spreadsheet": "^3.3.0",
     "googleapis": "^159.0.0",
