@@ -137,14 +137,9 @@ const client = new Client({
 });
 
 client.on('qr', qr => {
-  console.log('Escaneie o QR Code abaixo com o WhatsApp (Aparelhos Conectados):');
-  try {
-    qrcode.generate(qr, { small: true });
-  } catch (_) {
-    // Fallback caso o terminal não suporte renderização
-    console.log(qr);
-    console.log('Se o QR não aparecer, cole o texto acima em um conversor de QR.');
-  }
+  console.log("====== COPIE ESSE TEXTO DO QR CODE ======");
+  console.log(qr);
+  console.log("Cole em um conversor online de QR para gerar a imagem.");
 });
 
 client.on('ready', async () => {
