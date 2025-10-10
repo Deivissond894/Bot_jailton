@@ -50,6 +50,8 @@ const conversasEmAndamento = new Map();
 const doc = new GoogleSpreadsheet(idDaPlanilha);
 
 let planilhaCarregada = false;
+let cronJobAgendado = null;
+let isInitializing = false;
 
 // ==============================================================================
 // SEÇÃO 2: FUNÇÕES AUXILIARES
@@ -77,6 +79,45 @@ function timestampBR() {
   return `[${date}, ${time}]`;
 }
 
+function normalizaTelefoneParaJid(valor) {
+  if (!valor) return null;
+  // Se já vier como JID
+  if (typeof valor === 'string' && valor.endsWith('@c.us')) return valor;
+  // Extrai apenas dígitos
+  const digits = String(valor).replace(/\D/g, '');
+  if (!digits) return null;
+  // Garante código do país BR (55)
+  const comPais = digits.startsWith('55') ? digits : `55${digits}`;
+  // Tamanho mínimo razoável (55 + DDD 2 + número 8/9)
+  if (comPais.length < 12) return null;
+  return `${comPais}@c.us`;
+}
+
+async function enviarMensagemSegura(jidOuTelefone, texto) {
+  try {
+    const state = await client.getState().catch(() => null);
+    if (state !== 'CONNECTED') {
+      console.warn(`${timestampBR()} Cliente não está conectado (state=${state}). Mensagem não enviada.`);
+      return false;
+    }
+    const jid = normalizaTelefoneParaJid(jidOuTelefone);
+    if (!jid) {
+      console.warn(`Número/JID inválido: ${jidOuTelefone}`);
+      return false;
+    }
+    const isUser = await client.isRegisteredUser(jid).catch(() => false);
+    if (!isUser) {
+      console.warn(`Destino não está registrado no WhatsApp: ${jid}`);
+      return false;
+    }
+    await client.sendMessage(jid, texto);
+    return true;
+  } catch (e) {
+    console.error(`Falha ao enviar mensagem para ${jidOuTelefone}:`, e.message);
+    return false;
+  }
+}
+
 // ==============================================================================
 // SEÇÃO 3: LÓGICA DO BOT E AGENDAMENTOS
 // ==============================================================================
@@ -101,14 +142,14 @@ async function verificarEEnviarLembretes() {
         !row['Data do Agendamento'] &&
         row['Lembrete Enviado'] !== 'SIM'
       ) {
-        const mensagemLembrete = saudacaoPorHorario();
+  const mensagemLembrete = saudacaoPorHorario();
 
-        await client.sendMessage(row['Telefone'] + '@c.us', mensagemLembrete);
+  await enviarMensagemSegura(row['Telefone'], mensagemLembrete);
 
         row['Lembrete Enviado'] = 'SIM';
         await row.save();
 
-        conversasEmAndamento.set(row['Telefone'] + '@c.us', { passo: 1 });
+  conversasEmAndamento.set(normalizaTelefoneParaJid(row['Telefone']), { passo: 1 });
         lembretesEnviados++;
         await sleep(60000); // pausa de 1 min entre lembretes
       }
@@ -122,7 +163,7 @@ async function verificarEEnviarLembretes() {
     console.log(statusMsg);
 
     for (const numero of numerosAutorizados) {
-      await client.sendMessage(numero, statusMsg);
+      await enviarMensagemSegura(numero, statusMsg);
     }
   } catch (err) {
     console.error("Erro na verificação de lembretes:", err.message);
@@ -133,7 +174,21 @@ async function verificarEEnviarLembretes() {
 // SEÇÃO 4: CONFIGURAÇÃO E EVENTOS DO WHATSAPP
 // ==============================================================================
 const client = new Client({
-  authStrategy: new LocalAuth()
+  authStrategy: new LocalAuth({ dataPath: path.resolve(__dirname, '.wwebjs_auth') }),
+  restartOnAuthFail: true,
+  takeoverOnConflict: true,
+  takeoverTimeoutMs: 10_000,
+  puppeteer: {
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-software-rasterizer'
+    ],
+    defaultViewport: null
+  }
 });
 
 client.on('qr', qr => {
@@ -162,8 +217,33 @@ client.on('ready', async () => {
   }
 
   // Agendamento automático diário (meia-noite)
-  cron.schedule('0 0 * * *', verificarEEnviarLembretes);
-  console.log('Agendamento automático de verificação (1x por dia) ativado.');
+  if (!cronJobAgendado) {
+    cronJobAgendado = cron.schedule('0 0 * * *', verificarEEnviarLembretes);
+    console.log('Agendamento automático de verificação (1x por dia) ativado.');
+  } else {
+    console.log('Agendamento já estava ativo. Evitando múltiplos cron jobs.');
+  }
+});
+
+client.on('auth_failure', (msg) => {
+  console.error('Falha na autenticação:', msg);
+});
+
+client.on('disconnected', (reason) => {
+  console.error('Cliente desconectado:', reason);
+  // tenta reinicializar com proteção contra múltiplas inicializações
+  if (!isInitializing) {
+    isInitializing = true;
+    setTimeout(() => {
+      client.initialize().finally(() => {
+        isInitializing = false;
+      });
+    }, 3000);
+  }
+});
+
+client.on('change_state', (state) => {
+  console.log('Estado do cliente mudou para:', state);
 });
 
 // ==============================================================================
@@ -245,7 +325,7 @@ client.on('message', async message => {
     if (["3", "dúvida", "duvida", "valor", "quanto", "preço", "preco"].some(opt => resposta.includes(opt))) {
       await message.reply("Certo 😉 Vou encaminhar sua dúvida para nossa equipe.");
       for (const numero of numerosAutorizados) {
-        await client.sendMessage(numero, `Cliente com dúvida: ${message.from} → ${message.body}`);
+        await enviarMensagemSegura(numero, `Cliente com dúvida: ${message.from} → ${message.body}`);
       }
       conversasEmAndamento.delete(message.from);
       return;
@@ -281,7 +361,7 @@ client.on('message', async message => {
         );
 
         for (const numero of numerosAutorizados) {
-          await client.sendMessage(
+          await enviarMensagemSegura(
             numero,
             `Agendamento marcado!\nCliente: ${clienteRow['Nome do Cliente']}\nData: ${dataAgendamento}\nMáquinas: ${numMaquinas}`
           );
