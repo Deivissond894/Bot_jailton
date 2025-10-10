@@ -6,9 +6,41 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const cron = require('node-cron');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const express = require('express'); // 🚀 servidor para Render
+const fs = require('fs');
+const path = require('path');
 
-// carrega as credenciais direto da env
-const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+// carrega as credenciais da env ou faz fallback para o arquivo credentials.json
+let credentials;
+(() => {
+  const raw = process.env.GOOGLE_CREDENTIALS;
+  if (raw && raw.trim()) {
+    try {
+      credentials = JSON.parse(raw);
+      return;
+    } catch (e) {
+      console.error('Erro ao analisar GOOGLE_CREDENTIALS. Verifique se é um JSON válido.');
+      console.error(e.message);
+      process.exit(1);
+    }
+  }
+
+  // Fallback para arquivo local
+  const credPath = path.resolve(__dirname, 'credentials.json');
+  if (fs.existsSync(credPath)) {
+    try {
+      const fileContent = fs.readFileSync(credPath, 'utf8');
+      credentials = JSON.parse(fileContent);
+      return;
+    } catch (e) {
+      console.error('Não foi possível ler/parsear o arquivo credentials.json.');
+      console.error(e.message);
+      process.exit(1);
+    }
+  }
+
+  console.error('Credenciais do Google não encontradas. Defina GOOGLE_CREDENTIALS (JSON) ou adicione credentials.json na raiz do projeto.');
+  process.exit(1);
+})();
 
 // ID da planilha
 const idDaPlanilha = '1e9HEEsBHelQsAJynGldKxE8POO5xQXYtoOWyYt2gnGU';
@@ -105,9 +137,14 @@ const client = new Client({
 });
 
 client.on('qr', qr => {
-  console.log("====== COPIE ESSE TEXTO DO QR CODE ======");
-  console.log(qr);
-  console.log("Cole em um conversor online de QR para gerar a imagem.");
+  console.log('Escaneie o QR Code abaixo com o WhatsApp (Aparelhos Conectados):');
+  try {
+    qrcode.generate(qr, { small: true });
+  } catch (_) {
+    // Fallback caso o terminal não suporte renderização
+    console.log(qr);
+    console.log('Se o QR não aparecer, cole o texto acima em um conversor de QR.');
+  }
 });
 
 client.on('ready', async () => {
