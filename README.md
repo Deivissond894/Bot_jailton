@@ -17,6 +17,7 @@
    - `GOOGLE_CREDENTIALS`: cole o JSON completo da service account.
    - `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD`: false
    - `PUPPETEER_CACHE_DIR`: /opt/render/.cache/puppeteer
+   - `PUPPETEER_EXECUTABLE_PATH`: (opcional, auto-detectado)
    - `PORT`: Render define automaticamente.
 
 3. **Disco persistente**
@@ -32,11 +33,17 @@
    - Flags de Puppeteer para ambiente cloud já estão no código.
 
 ## Troubleshooting
+- **Erro "Failed to launch browser"**: Chrome baixado mas caminho incorreto - código agora auto-detecta.
 - **Erro "Could not find Chrome"**: Verifique se o build command está como `npm run build`.
 - **Se pedir QR a cada deploy**: revise o disco persistente.
 - **Erro de AppState**: revise Puppeteer e disco.
 - **Não conecta ao Google Sheets**: revise GOOGLE_CREDENTIALS.
 - **Puppeteer fails**: Defina `PUPPETEER_CACHE_DIR=/opt/render/.cache/puppeteer`.
+
+### Debug do Puppeteer
+Se ainda houver problemas, adicione estas variáveis temporariamente:
+- `DEBUG`: puppeteer:*
+- `PUPPETEER_EXECUTABLE_PATH`: /opt/render/.cache/puppeteer/chrome/linux-*/chrome-linux64/chrome
 
 ## Segurança
 - Nunca versionar `credentials.json` ou `.wwebjs_auth`.

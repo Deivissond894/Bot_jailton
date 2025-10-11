@@ -9,6 +9,16 @@ const express = require('express'); // 🚀 servidor para Render
 const fs = require('fs');
 const path = require('path');
 
+// Configurar Puppeteer para usar o Chrome baixado
+let puppeteerExecutablePath;
+try {
+  const puppeteer = require('puppeteer');
+  puppeteerExecutablePath = puppeteer.executablePath();
+} catch (err) {
+  console.warn('Puppeteer não encontrado, usando caminho padrão do sistema');
+  puppeteerExecutablePath = '/usr/bin/google-chrome-stable';
+}
+
 // carrega as credenciais da env ou faz fallback para o arquivo credentials.json
 let credentials;
 (() => {
@@ -180,7 +190,7 @@ const client = new Client({
   takeoverTimeoutMs: 10_000,
   puppeteer: {
     headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteerExecutablePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -189,7 +199,9 @@ const client = new Client({
       '--disable-software-rasterizer',
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding'
+      '--disable-renderer-backgrounding',
+      '--disable-extensions',
+      '--disable-default-apps'
     ],
     defaultViewport: null
   }
