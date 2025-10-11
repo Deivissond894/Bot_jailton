@@ -4,7 +4,9 @@
   "description": "Assistente de prospecção e lembretes via WhatsApp integrado ao Google Sheets",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "build": "npx puppeteer browsers install chrome",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "keywords": [
     "whatsapp",

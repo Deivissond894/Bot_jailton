@@ -1,4 +1,3 @@
-process.env.CHROME_BIN = require('puppeteer').executablePath();
 // ==============================================================================
 // SEÇÃO 1: DEPENDÊNCIAS E CONFIGURAÇÕES
 // ==============================================================================
@@ -181,12 +180,16 @@ const client = new Client({
   takeoverTimeoutMs: 10_000,
   puppeteer: {
     headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--disable-software-rasterizer'
+      '--disable-software-rasterizer',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding'
     ],
     defaultViewport: null
   }

@@ -10,11 +10,13 @@
 
 1. **Crie o serviço Web**
    - Conecte o repositório.
-   - Build command: `npm install`
+   - Build command: `npm run build`
    - Start command: `npm start`
 
 2. **Variáveis de ambiente**
    - `GOOGLE_CREDENTIALS`: cole o JSON completo da service account.
+   - `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD`: false
+   - `PUPPETEER_CACHE_DIR`: /opt/render/.cache/puppeteer
    - `PORT`: Render define automaticamente.
 
 3. **Disco persistente**
@@ -30,9 +32,11 @@
    - Flags de Puppeteer para ambiente cloud já estão no código.
 
 ## Troubleshooting
-- Se pedir QR a cada deploy, revise o disco persistente.
-- Se der erro de AppState, revise Puppeteer e disco.
-- Se não conectar ao Google Sheets, revise GOOGLE_CREDENTIALS.
+- **Erro "Could not find Chrome"**: Verifique se o build command está como `npm run build`.
+- **Se pedir QR a cada deploy**: revise o disco persistente.
+- **Erro de AppState**: revise Puppeteer e disco.
+- **Não conecta ao Google Sheets**: revise GOOGLE_CREDENTIALS.
+- **Puppeteer fails**: Defina `PUPPETEER_CACHE_DIR=/opt/render/.cache/puppeteer`.
 
 ## Segurança
 - Nunca versionar `credentials.json` ou `.wwebjs_auth`.
