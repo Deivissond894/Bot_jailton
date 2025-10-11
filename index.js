@@ -10,14 +10,62 @@ const fs = require('fs');
 const path = require('path');
 
 // Configurar Puppeteer para usar o Chrome baixado
-let puppeteerExecutablePath;
-try {
-  const puppeteer = require('puppeteer');
-  puppeteerExecutablePath = puppeteer.executablePath();
-} catch (err) {
-  console.warn('Puppeteer não encontrado, usando caminho padrão do sistema');
-  puppeteerExecutablePath = '/usr/bin/google-chrome-stable';
+function findChromePath() {
+  const possiblePaths = [
+    // Caminho padrão do Puppeteer no Render
+    '/opt/render/.cache/puppeteer/chrome',
+    // Caminho local se existir
+    path.join(__dirname, 'node_modules', 'puppeteer', '.local-chromium'),
+    // Caminhos do sistema
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium'
+  ];
+
+  // Procura por diretórios chrome no cache do Puppeteer
+  try {
+    const puppeteerCacheDir = '/opt/render/.cache/puppeteer/chrome';
+    if (fs.existsSync(puppeteerCacheDir)) {
+      const versions = fs.readdirSync(puppeteerCacheDir);
+      if (versions.length > 0) {
+        const latestVersion = versions.sort().pop();
+        const chromePath = path.join(puppeteerCacheDir, latestVersion, 'chrome-linux64', 'chrome');
+        if (fs.existsSync(chromePath)) {
+          console.log(`Chrome encontrado em: ${chromePath}`);
+          return chromePath;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao procurar Chrome no cache:', err.message);
+  }
+
+  // Tenta usar o executablePath do puppeteer
+  try {
+    const puppeteer = require('puppeteer');
+    const execPath = puppeteer.executablePath();
+    if (fs.existsSync(execPath)) {
+      console.log(`Chrome do Puppeteer encontrado: ${execPath}`);
+      return execPath;
+    }
+  } catch (err) {
+    console.warn('Puppeteer executablePath falhou:', err.message);
+  }
+
+  // Verifica caminhos do sistema
+  for (const chromePath of possiblePaths) {
+    if (fs.existsSync(chromePath)) {
+      console.log(`Chrome do sistema encontrado: ${chromePath}`);
+      return chromePath;
+    }
+  }
+
+  console.error('Nenhum executável do Chrome encontrado!');
+  return null;
 }
+
+const puppeteerExecutablePath = findChromePath();
 
 // carrega as credenciais da env ou faz fallback para o arquivo credentials.json
 let credentials;
@@ -183,6 +231,12 @@ async function verificarEEnviarLembretes() {
 // ==============================================================================
 // SEÇÃO 4: CONFIGURAÇÃO E EVENTOS DO WHATSAPP
 // ==============================================================================
+// Verificar se encontrou o Chrome
+if (!puppeteerExecutablePath && !process.env.PUPPETEER_EXECUTABLE_PATH) {
+  console.error('ERRO CRÍTICO: Chrome não encontrado! Verifique se o Puppeteer foi instalado corretamente.');
+  process.exit(1);
+}
+
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: path.resolve(__dirname, '.wwebjs_auth') }),
   restartOnAuthFail: true,
@@ -201,11 +255,15 @@ const client = new Client({
       '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding',
       '--disable-extensions',
-      '--disable-default-apps'
+      '--disable-default-apps',
+      '--disable-web-security',
+      '--disable-features=VizDisplayCompositor'
     ],
     defaultViewport: null
   }
 });
+
+console.log(`Usando Chrome em: ${process.env.PUPPETEER_EXECUTABLE_PATH || puppeteerExecutablePath}`);
 
 client.on('qr', qr => {
   console.log("====== COPIE ESSE TEXTO DO QR CODE ======");

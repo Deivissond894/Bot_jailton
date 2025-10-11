@@ -43,7 +43,13 @@
 ### Debug do Puppeteer
 Se ainda houver problemas, adicione estas variáveis temporariamente:
 - `DEBUG`: puppeteer:*
-- `PUPPETEER_EXECUTABLE_PATH`: /opt/render/.cache/puppeteer/chrome/linux-*/chrome-linux64/chrome
+- `PUPPETEER_EXECUTABLE_PATH`: /opt/render/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome (use a versão atual)
+
+### Verificação manual do Chrome
+Para verificar se o Chrome foi baixado, adicione temporariamente no código:
+```bash
+ls -la /opt/render/.cache/puppeteer/chrome/
+```
 
 ## Segurança
 - Nunca versionar `credentials.json` ou `.wwebjs_auth`.
