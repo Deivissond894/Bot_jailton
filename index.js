@@ -159,20 +159,24 @@ const puppeteerConfig = {
 };
 
 // Adiciona executablePath se estiver no Render
-if (process.env.NODE_ENV === 'production' && process.env.RENDER) {
+if (process.env.RENDER === 'true') {
   try {
     const puppeteer = require('puppeteer');
     puppeteerConfig.executablePath = puppeteer.executablePath();
+    puppeteerConfig.timeout = 0; // Remove timeout no Render
   } catch (err) {
     console.warn('Puppeteer executablePath não encontrado:', err.message);
   }
+} else {
+  // Configuração para desenvolvimento local
+  puppeteerConfig.timeout = 60000;
 }
 
 const client = new Client({
   authStrategy: auth,
-  restartOnAuthFail: false, // Desabilita no Render
+  restartOnAuthFail: process.env.RENDER !== 'true', // Só ativa localmente
   takeoverOnConflict: true,
-  takeoverTimeoutMs: 20000,
+  takeoverTimeoutMs: 15000,
   puppeteer: puppeteerConfig
 });
 
@@ -186,7 +190,8 @@ client.on('qr', (qr) => {
 });
 
 client.on('authenticated', () => {
-  console.log('WhatsApp autenticado com sucesso!');
+  console.log('✅ WhatsApp autenticado com sucesso!');
+  inicializando = false; // Libera flag após autenticação
 });
 
 client.on('auth_failure', (msg) => {
@@ -198,20 +203,20 @@ client.on('disconnected', (reason) => {
   clientePronto = false;
 
   // No Render, evita reconexões automáticas que podem causar loops
-  if (process.env.NODE_ENV === 'production') {
-    console.log('Ambiente de produção - aguardando reconexão manual ou restart automático');
+  if (process.env.RENDER === 'true') {
+    console.log('Ambiente Render - aguardando reconexão manual ou restart automático');
     return;
   }
 
-  // Apenas para desenvolvimento local
+  // Desenvolvimento local - só reconecta se não foi LOGOUT intencional
   if (reason === 'LOGOUT') {
-    console.log('Logout detectado. Não tentando reconectar automaticamente.');
+    console.log('Logout detectado. Escaneie o QR novamente se necessário.');
     return;
   }
 
   if (!inicializando) {
     inicializando = true;
-    const delayMs = 5000;
+    const delayMs = 3000;
     console.log(`Tentando reconectar em ${delayMs / 1000}s...`);
     setTimeout(async () => {
       try {
@@ -235,12 +240,12 @@ client.on('loading_screen', (percent, message) => {
 });
 
 client.on('ready', async () => {
-  console.log('✅ WhatsApp conectado! Assistente está pronta!');
-
   if (clientePronto) {
-    console.log('Evento ready duplicado detectado; ignorando configuração repetida.');
+    console.log('⚠️ Evento ready duplicado detectado; ignorando configuração repetida.');
     return;
   }
+  
+  console.log('✅ WhatsApp conectado! Assistente está pronta!');
   clientePronto = true;
 
   try {
@@ -253,11 +258,11 @@ client.on('ready', async () => {
     planilhaCarregada = true;
     console.log(`✅ Planilha "${doc.title}" conectada com sucesso!`);
     
-    // Só executa verificação se não estiver no Render na primeira inicialização
-    if (process.env.NODE_ENV !== 'production') {
+    // Executa verificação inicial (exceto no Render)
+    if (process.env.RENDER !== 'true') {
       await verificarEEnviarLembretes();
     } else {
-      console.log('Ambiente de produção - verificação de lembretes via cron apenas');
+      console.log('Ambiente Render - verificação de lembretes via cron apenas');
     }
   } catch (error) {
     console.error('❌ Erro ao conectar planilha:', error.message);
@@ -442,11 +447,15 @@ app.listen(PORT, () => {
   console.log(`🌐 Servidor rodando na porta ${PORT}`);
 });
 
-// Inicializar o cliente
-console.log('🚀 Iniciando cliente WhatsApp...');
-client.initialize().catch(error => {
-  console.error('❌ Erro ao inicializar cliente:', error);
-});
+// Inicializar o cliente uma única vez
+if (!inicializando) {
+  console.log('🚀 Iniciando cliente WhatsApp...');
+  inicializando = true;
+  client.initialize().catch(error => {
+    console.error('❌ Erro ao inicializar cliente:', error);
+    inicializando = false;
+  });
+}
 
 // Adicionar tratamento para erros não capturados
 process.on('uncaughtException', (error) => {
