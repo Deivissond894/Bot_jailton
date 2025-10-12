@@ -164,8 +164,10 @@ const client = new Client({
 console.log('Inicializando cliente WhatsApp...');
 
 client.on('qr', (qr) => {
-  console.log('QR Code gerado - escaneie com seu WhatsApp:');
-  qrcode.generate(qr, { small: true });
+  console.log('====== COPIE ESTE CÓDIGO DO QR ======');
+  console.log(qr);
+  console.log('Cole em um gerador de QR Code online e escaneie com seu WhatsApp');
+  console.log('=====================================');
 });
 
 client.on('authenticated', () => {
