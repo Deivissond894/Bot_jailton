@@ -5,8 +5,11 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "build": "npx puppeteer browsers install chrome",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "start:render": "npx puppeteer browsers install chrome && node index.js",
+    "build": "npm install"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "keywords": [
     "whatsapp",

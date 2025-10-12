@@ -1,0 +1,19 @@
+# Configuração para deploy automático no Render
+# Use este arquivo como referência - configure manualmente no dashboard
+
+# Web Service Configuration:
+# - Runtime: Node.js
+# - Build Command: npm install && npx puppeteer browsers install chrome  
+# - Start Command: npm run start:render
+# - Plan: Free
+
+# Environment Variables Required:
+# - GOOGLE_CREDENTIALS: (JSON completo da service account)
+# - NODE_ENV: production
+# - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: false
+# - PUPPETEER_CACHE_DIR: /tmp/.cache/puppeteer
+
+# Persistent Disk (configure via dashboard):
+# - Name: whatsapp-session
+# - Mount Path: /opt/render/project/src/.wwebjs_auth
+# - Size: 1GB

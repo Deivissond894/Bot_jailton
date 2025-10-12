@@ -1,24 +1,58 @@
-# Bot Jailton - Deploy no Render
+# Bot Jailton - Assistente WhatsApp
 
-## Requisitos
-- Node.js 18+
-- Variável de ambiente GOOGLE_CREDENTIALS (JSON da service account Google)
-- Disco persistente montado em `/opt/render/project/src/.wwebjs_auth` (Render)
-- Puppeteer instalado (já no package.json)
+## 🚀 Deploy no Render (Recomendado)
 
-## Passos para Deploy no Render
+### Configuração no Dashboard
+1. **Web Service**:
+   - Conecte o repositório GitHub
+   - Runtime: Node.js  
+   - Build Command: `npm install && npx puppeteer browsers install chrome`
+   - Start Command: `npm run start:render`
+   - Plan: Free
 
-1. **Crie o serviço Web**
-   - Conecte o repositório.
-   - Build command: `npm run build`
-   - Start command: `npm start`
+2. **Variáveis de Ambiente** (obrigatórias):
+   ```
+   GOOGLE_CREDENTIALS={"type":"service_account",...} # JSON completo
+   NODE_ENV=production
+   PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
+   PUPPETEER_CACHE_DIR=/tmp/.cache/puppeteer
+   ```
 
-2. **Variáveis de ambiente**
-   - `GOOGLE_CREDENTIALS`: cole o JSON completo da service account.
-   - `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD`: false
-   - `PUPPETEER_CACHE_DIR`: /opt/render/.cache/puppeteer
-   - `PUPPETEER_EXECUTABLE_PATH`: (opcional, auto-detectado)
-   - `PORT`: Render define automaticamente.
+3. **Disco Persistente**:
+   - Name: `whatsapp-session`
+   - Mount Path: `/opt/render/project/src/.wwebjs_auth`
+   - Size: 1GB
+
+### Primeiro Deploy
+- Aguarde build completo (~2-3min)
+- Acesse os logs para ver o QR Code em texto
+- Escaneie com WhatsApp → Aparelhos Conectados
+- A sessão será salva no disco persistente
+
+## 🔧 Executar Localmente
+
+```bash
+npm install
+npm start
+```
+
+## 🛠️ Troubleshooting
+
+### Render
+- **Chrome não encontrado**: Verifique build command
+- **QR a cada deploy**: Configure disco persistente  
+- **Não conecta Google Sheets**: Verifique `GOOGLE_CREDENTIALS`
+
+### Local  
+- **Múltiplos eventos ready**: Normal após reconexão
+- **LOGOUT detectado**: Escaneie QR novamente no WhatsApp
+
+## 📝 Funcionalidades
+- ✅ Lembretes automáticos (6 meses após serviço)
+- ✅ Agendamento via conversa
+- ✅ Cadastro de clientes via vCard  
+- ✅ Integração Google Sheets
+- ✅ Reconexão automática
 
 3. **Disco persistente**
    - Adicione um disco de 1GB.

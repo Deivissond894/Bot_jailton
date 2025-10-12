@@ -2,105 +2,30 @@
 // SEÇÃO 1: DEPENDÊNCIAS E CONFIGURAÇÕES
 // ==============================================================================
 const qrcode = require('qrcode-terminal');
+const path = require('path');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const cron = require('node-cron');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const express = require('express'); // 🚀 servidor para Render
-const fs = require('fs');
-const path = require('path');
+const express = require('express');
 
-// Configurar Puppeteer para usar o Chrome baixado
-function findChromePath() {
-  const possiblePaths = [
-    // Caminho padrão do Puppeteer no Render
-    '/opt/render/.cache/puppeteer/chrome',
-    // Caminho local se existir
-    path.join(__dirname, 'node_modules', 'puppeteer', '.local-chromium'),
-    // Caminhos do sistema
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium'
-  ];
-
-  // Procura por diretórios chrome no cache do Puppeteer
+// Carregar credenciais (env primeiro, fallback para arquivo)
+let credentials;
+if (process.env.GOOGLE_CREDENTIALS) {
   try {
-    const puppeteerCacheDir = '/opt/render/.cache/puppeteer/chrome';
-    if (fs.existsSync(puppeteerCacheDir)) {
-      const versions = fs.readdirSync(puppeteerCacheDir);
-      if (versions.length > 0) {
-        const latestVersion = versions.sort().pop();
-        const chromePath = path.join(puppeteerCacheDir, latestVersion, 'chrome-linux64', 'chrome');
-        if (fs.existsSync(chromePath)) {
-          console.log(`Chrome encontrado em: ${chromePath}`);
-          return chromePath;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('Erro ao procurar Chrome no cache:', err.message);
+    credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+  } catch (e) {
+    console.error('Erro ao parsear GOOGLE_CREDENTIALS:', e.message);
+    process.exit(1);
   }
-
-  // Tenta usar o executablePath do puppeteer
+} else {
   try {
-    const puppeteer = require('puppeteer');
-    const execPath = puppeteer.executablePath();
-    if (fs.existsSync(execPath)) {
-      console.log(`Chrome do Puppeteer encontrado: ${execPath}`);
-      return execPath;
-    }
-  } catch (err) {
-    console.warn('Puppeteer executablePath falhou:', err.message);
+    credentials = require('./credentials.json');
+  } catch (e) {
+    console.error('Arquivo credentials.json não encontrado e GOOGLE_CREDENTIALS não definido');
+    process.exit(1);
   }
-
-  // Verifica caminhos do sistema
-  for (const chromePath of possiblePaths) {
-    if (fs.existsSync(chromePath)) {
-      console.log(`Chrome do sistema encontrado: ${chromePath}`);
-      return chromePath;
-    }
-  }
-
-  console.error('Nenhum executável do Chrome encontrado!');
-  return null;
 }
 
-const puppeteerExecutablePath = findChromePath();
-
-// carrega as credenciais da env ou faz fallback para o arquivo credentials.json
-let credentials;
-(() => {
-  const raw = process.env.GOOGLE_CREDENTIALS;
-  if (raw && raw.trim()) {
-    try {
-      credentials = JSON.parse(raw);
-      return;
-    } catch (e) {
-      console.error('Erro ao analisar GOOGLE_CREDENTIALS. Verifique se é um JSON válido.');
-      console.error(e.message);
-      process.exit(1);
-    }
-  }
-
-  // Fallback para arquivo local
-  const credPath = path.resolve(__dirname, 'credentials.json');
-  if (fs.existsSync(credPath)) {
-    try {
-      const fileContent = fs.readFileSync(credPath, 'utf8');
-      credentials = JSON.parse(fileContent);
-      return;
-    } catch (e) {
-      console.error('Não foi possível ler/parsear o arquivo credentials.json.');
-      console.error(e.message);
-      process.exit(1);
-    }
-  }
-
-  console.error('Credenciais do Google não encontradas. Defina GOOGLE_CREDENTIALS (JSON) ou adicione credentials.json na raiz do projeto.');
-  process.exit(1);
-})();
-
-// ID da planilha
 const idDaPlanilha = '1e9HEEsBHelQsAJynGldKxE8POO5xQXYtoOWyYt2gnGU';
 const numerosAutorizados = ['557191994913@c.us', '557197232017@c.us'];
 
@@ -108,8 +33,9 @@ const conversasEmAndamento = new Map();
 const doc = new GoogleSpreadsheet(idDaPlanilha);
 
 let planilhaCarregada = false;
-let cronJobAgendado = null;
-let isInitializing = false;
+let clientePronto = false; // evita executar lógica de ready múltiplas vezes
+let inicializando = false; // trava para reinitialize
+let tarefaCron = null; // referência do agendamento para não duplicar
 
 // ==============================================================================
 // SEÇÃO 2: FUNÇÕES AUXILIARES
@@ -137,45 +63,6 @@ function timestampBR() {
   return `[${date}, ${time}]`;
 }
 
-function normalizaTelefoneParaJid(valor) {
-  if (!valor) return null;
-  // Se já vier como JID
-  if (typeof valor === 'string' && valor.endsWith('@c.us')) return valor;
-  // Extrai apenas dígitos
-  const digits = String(valor).replace(/\D/g, '');
-  if (!digits) return null;
-  // Garante código do país BR (55)
-  const comPais = digits.startsWith('55') ? digits : `55${digits}`;
-  // Tamanho mínimo razoável (55 + DDD 2 + número 8/9)
-  if (comPais.length < 12) return null;
-  return `${comPais}@c.us`;
-}
-
-async function enviarMensagemSegura(jidOuTelefone, texto) {
-  try {
-    const state = await client.getState().catch(() => null);
-    if (state !== 'CONNECTED') {
-      console.warn(`${timestampBR()} Cliente não está conectado (state=${state}). Mensagem não enviada.`);
-      return false;
-    }
-    const jid = normalizaTelefoneParaJid(jidOuTelefone);
-    if (!jid) {
-      console.warn(`Número/JID inválido: ${jidOuTelefone}`);
-      return false;
-    }
-    const isUser = await client.isRegisteredUser(jid).catch(() => false);
-    if (!isUser) {
-      console.warn(`Destino não está registrado no WhatsApp: ${jid}`);
-      return false;
-    }
-    await client.sendMessage(jid, texto);
-    return true;
-  } catch (e) {
-    console.error(`Falha ao enviar mensagem para ${jidOuTelefone}:`, e.message);
-    return false;
-  }
-}
-
 // ==============================================================================
 // SEÇÃO 3: LÓGICA DO BOT E AGENDAMENTOS
 // ==============================================================================
@@ -200,14 +87,14 @@ async function verificarEEnviarLembretes() {
         !row['Data do Agendamento'] &&
         row['Lembrete Enviado'] !== 'SIM'
       ) {
-  const mensagemLembrete = saudacaoPorHorario();
+        const mensagemLembrete = saudacaoPorHorario();
 
-  await enviarMensagemSegura(row['Telefone'], mensagemLembrete);
+        await client.sendMessage(row['Telefone'] + '@c.us', mensagemLembrete);
 
         row['Lembrete Enviado'] = 'SIM';
         await row.save();
 
-  conversasEmAndamento.set(normalizaTelefoneParaJid(row['Telefone']), { passo: 1 });
+        conversasEmAndamento.set(row['Telefone'] + '@c.us', { passo: 1 });
         lembretesEnviados++;
         await sleep(60000); // pausa de 1 min entre lembretes
       }
@@ -221,82 +108,68 @@ async function verificarEEnviarLembretes() {
     console.log(statusMsg);
 
     for (const numero of numerosAutorizados) {
-      await enviarMensagemSegura(numero, statusMsg);
+      await client.sendMessage(numero, statusMsg);
     }
-  } catch (err) {
-    console.error("Erro na verificação de lembretes:", err.message);
-  }
+  } catch (_) {}
 }
 
 // ==============================================================================
 // SEÇÃO 4: CONFIGURAÇÃO E EVENTOS DO WHATSAPP
 // ==============================================================================
-// Verificar se encontrou o Chrome
-if (!puppeteerExecutablePath && !process.env.PUPPETEER_EXECUTABLE_PATH) {
-  console.error('ERRO CRÍTICO: Chrome não encontrado! Verifique se o Puppeteer foi instalado corretamente.');
-  process.exit(1);
-}
+// Auth separado para permitir override seguro do logout (tolerante a EBUSY no Windows)
+const auth = new LocalAuth({
+  clientId: 'jailton-assistant',
+  dataPath: path.resolve(__dirname, '.wwebjs_auth'),
+  rmMaxRetries: 50
+});
+
+// Evita crash quando o Windows mantém locks de arquivos (EBUSY)
+const originalLogout = auth.logout.bind(auth);
+auth.logout = async function () {
+  try {
+    await originalLogout();
+  } catch (e) {
+    const msg = e?.message || String(e);
+    if (msg.includes('EBUSY') || msg.includes('resource busy or locked')) {
+      console.warn('Aviso: EBUSY ao remover sessão. Ignorando e seguindo adiante.');
+      return; // suprime o erro para não derrubar o processo
+    }
+    throw e;
+  }
+};
 
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: path.resolve(__dirname, '.wwebjs_auth') }),
+  authStrategy: auth,
   restartOnAuthFail: true,
   takeoverOnConflict: true,
-  takeoverTimeoutMs: 10_000,
+  takeoverTimeoutMs: 15000,
   puppeteer: {
     headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteerExecutablePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
       '--disable-gpu',
-      '--disable-software-rasterizer',
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--disable-extensions',
-      '--disable-default-apps',
-      '--disable-web-security',
-      '--disable-features=VizDisplayCompositor'
+      '--disable-renderer-backgrounding'
     ],
-    defaultViewport: null
+    timeout: 60000
   }
 });
 
-console.log(`Usando Chrome em: ${process.env.PUPPETEER_EXECUTABLE_PATH || puppeteerExecutablePath}`);
+console.log('Inicializando cliente WhatsApp...');
 
-client.on('qr', qr => {
-  console.log("====== COPIE ESSE TEXTO DO QR CODE ======");
-  console.log(qr);
-  console.log("Cole em um conversor online de QR para gerar a imagem.");
+client.on('qr', (qr) => {
+  console.log('QR Code gerado - escaneie com seu WhatsApp:');
+  qrcode.generate(qr, { small: true });
 });
 
-client.on('ready', async () => {
-  console.log('Assistente está pronta!');
-  
-  try {
-    // 🔥 Ajuste para funcionar com google-spreadsheet atual
-    await doc.useServiceAccountAuth({
-      client_email: credentials.client_email,
-      private_key: credentials.private_key.replace(/\\n/g, '\n'),
-    });
-
-    await doc.loadInfo();
-    planilhaCarregada = true;
-    console.log(`✅ Conectado à planilha: ${doc.title}`);
-    await verificarEEnviarLembretes();
-  } catch (err) {
-    console.error("❌ Erro ao conectar à planilha:", err.message);
-    return;
-  }
-
-  // Agendamento automático diário (meia-noite)
-  if (!cronJobAgendado) {
-    cronJobAgendado = cron.schedule('0 0 * * *', verificarEEnviarLembretes);
-    console.log('Agendamento automático de verificação (1x por dia) ativado.');
-  } else {
-    console.log('Agendamento já estava ativo. Evitando múltiplos cron jobs.');
-  }
+client.on('authenticated', () => {
+  console.log('WhatsApp autenticado com sucesso!');
 });
 
 client.on('auth_failure', (msg) => {
@@ -304,20 +177,71 @@ client.on('auth_failure', (msg) => {
 });
 
 client.on('disconnected', (reason) => {
-  console.error('Cliente desconectado:', reason);
-  // tenta reinicializar com proteção contra múltiplas inicializações
-  if (!isInitializing) {
-    isInitializing = true;
-    setTimeout(() => {
-      client.initialize().finally(() => {
-        isInitializing = false;
-      });
-    }, 3000);
+  console.log('WhatsApp desconectado. Motivo:', reason);
+  clientePronto = false;
+  planilhaCarregada = false; // força reconexão da planilha também
+
+  // Não reconectar automaticamente no LOGOUT (usuário saiu intencionalmente)
+  if (reason === 'LOGOUT') {
+    console.log('Logout detectado. Não tentando reconectar automaticamente.');
+    return;
+  }
+
+  // Reconectar para outros tipos de desconexão
+  if (!inicializando) {
+    inicializando = true;
+    const delayMs = 3000; // 3s para estabilizar
+    console.log(`Tentando reconectar em ${delayMs / 1000}s...`);
+    setTimeout(async () => {
+      try {
+        console.log('🔄 Reinicializando cliente WhatsApp...');
+        await client.destroy();
+        await sleep(2000);
+        await client.initialize();
+      } catch (err) {
+        console.error('Erro ao reconectar:', err?.message || err);
+      } finally {
+        inicializando = false;
+      }
+    }, delayMs);
   }
 });
 
-client.on('change_state', (state) => {
-  console.log('Estado do cliente mudou para:', state);
+client.on('error', (err) => {
+  console.error('Erro do cliente WhatsApp:', err?.message || err);
+});
+
+client.on('loading_screen', (percent, message) => {
+  console.log('Carregando...', percent, message);
+});
+
+client.on('ready', async () => {
+  console.log('✅ WhatsApp conectado! Assistente está pronta!');
+
+  if (clientePronto) {
+    console.log('Evento ready duplicado detectado; ignorando configuração repetida.');
+    return;
+  }
+  clientePronto = true;
+
+  try {
+    console.log('Conectando à planilha Google...');
+    await doc.useServiceAccountAuth(credentials);
+    await doc.loadInfo();
+    planilhaCarregada = true;
+    console.log(`✅ Planilha "${doc.title}" conectada com sucesso!`);
+    
+    await verificarEEnviarLembretes();
+  } catch (error) {
+    console.error('❌ Erro ao conectar planilha:', error.message);
+    return;
+  }
+
+  // Agendamento automático diário (meia-noite)
+  if (!tarefaCron) {
+    tarefaCron = cron.schedule('0 0 * * *', verificarEEnviarLembretes);
+    console.log('Agendamento automático de verificação (1x por dia) ativado.');
+  }
 });
 
 // ==============================================================================
@@ -399,7 +323,7 @@ client.on('message', async message => {
     if (["3", "dúvida", "duvida", "valor", "quanto", "preço", "preco"].some(opt => resposta.includes(opt))) {
       await message.reply("Certo 😉 Vou encaminhar sua dúvida para nossa equipe.");
       for (const numero of numerosAutorizados) {
-        await enviarMensagemSegura(numero, `Cliente com dúvida: ${message.from} → ${message.body}`);
+        await client.sendMessage(numero, `Cliente com dúvida: ${message.from} → ${message.body}`);
       }
       conversasEmAndamento.delete(message.from);
       return;
@@ -435,7 +359,7 @@ client.on('message', async message => {
         );
 
         for (const numero of numerosAutorizados) {
-          await enviarMensagemSegura(
+          await client.sendMessage(
             numero,
             `Agendamento marcado!\nCliente: ${clienteRow['Nome do Cliente']}\nData: ${dataAgendamento}\nMáquinas: ${numMaquinas}`
           );
@@ -448,16 +372,58 @@ client.on('message', async message => {
   }
 });
 
-client.initialize();
-
 // ==============================================================================
-// SEÇÃO EXTRA: SERVIDOR EXPRESS PARA O RENDER
+// SEÇÃO 6: SERVIDOR EXPRESS (RENDER)
 // ==============================================================================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => res.send('🚀 Bot rodando com sucesso no Render!'));
+app.get('/', (req, res) => {
+  const status = clientePronto ? '✅ Conectado' : '⏳ Conectando...';
+  res.json({
+    status: 'Bot Jailton rodando',
+    whatsapp: status,
+    planilha: planilhaCarregada ? '✅ Conectada' : '⏳ Conectando...',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    healthy: clientePronto && planilhaCarregada,
+    uptime: process.uptime()
+  });
+});
 
 app.listen(PORT, () => {
-  console.log(`Servidor Express ativo na porta ${PORT}`);
+  console.log(`🌐 Servidor rodando na porta ${PORT}`);
 });
+
+// Inicializar o cliente
+console.log('🚀 Iniciando cliente WhatsApp...');
+client.initialize().catch(error => {
+  console.error('❌ Erro ao inicializar cliente:', error);
+});
+
+// Adicionar tratamento para erros não capturados
+process.on('uncaughtException', (error) => {
+  console.error('❌ Erro não capturado:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Promise rejeitada não tratada:', reason);
+});
+
+// Encerramento gracioso para evitar arquivos de sessão bloqueados (Windows)
+const finalizar = async (codigo = 0) => {
+  try {
+    if (tarefaCron) {
+      try { tarefaCron.stop(); } catch (_) {}
+    }
+    await client.destroy();
+  } catch (_) {}
+  try { process.exit(codigo); } catch (_) {}
+};
+
+process.on('SIGINT', () => finalizar(0));
+process.on('SIGTERM', () => finalizar(0));
