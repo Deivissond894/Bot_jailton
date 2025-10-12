@@ -138,27 +138,42 @@ auth.logout = async function () {
   }
 };
 
+// Configuração otimizada para Render
+const puppeteerConfig = {
+  headless: true,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-web-security',
+    '--disable-features=VizDisplayCompositor',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-extensions',
+    '--disable-default-apps',
+    '--no-first-run'
+  ],
+  timeout: 0 // Remove timeout para Render
+};
+
+// Adiciona executablePath se estiver no Render
+if (process.env.NODE_ENV === 'production' && process.env.RENDER) {
+  try {
+    const puppeteer = require('puppeteer');
+    puppeteerConfig.executablePath = puppeteer.executablePath();
+  } catch (err) {
+    console.warn('Puppeteer executablePath não encontrado:', err.message);
+  }
+}
+
 const client = new Client({
   authStrategy: auth,
-  restartOnAuthFail: true,
+  restartOnAuthFail: false, // Desabilita no Render
   takeoverOnConflict: true,
-  takeoverTimeoutMs: 15000,
-  puppeteer: {
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding'
-    ],
-    timeout: 60000
-  }
+  takeoverTimeoutMs: 20000,
+  puppeteer: puppeteerConfig
 });
 
 console.log('Inicializando cliente WhatsApp...');
@@ -181,24 +196,26 @@ client.on('auth_failure', (msg) => {
 client.on('disconnected', (reason) => {
   console.log('WhatsApp desconectado. Motivo:', reason);
   clientePronto = false;
-  planilhaCarregada = false; // força reconexão da planilha também
 
-  // Não reconectar automaticamente no LOGOUT (usuário saiu intencionalmente)
+  // No Render, evita reconexões automáticas que podem causar loops
+  if (process.env.NODE_ENV === 'production') {
+    console.log('Ambiente de produção - aguardando reconexão manual ou restart automático');
+    return;
+  }
+
+  // Apenas para desenvolvimento local
   if (reason === 'LOGOUT') {
     console.log('Logout detectado. Não tentando reconectar automaticamente.');
     return;
   }
 
-  // Reconectar para outros tipos de desconexão
   if (!inicializando) {
     inicializando = true;
-    const delayMs = 3000; // 3s para estabilizar
+    const delayMs = 5000;
     console.log(`Tentando reconectar em ${delayMs / 1000}s...`);
     setTimeout(async () => {
       try {
         console.log('🔄 Reinicializando cliente WhatsApp...');
-        await client.destroy();
-        await sleep(2000);
         await client.initialize();
       } catch (err) {
         console.error('Erro ao reconectar:', err?.message || err);
@@ -228,12 +245,20 @@ client.on('ready', async () => {
 
   try {
     console.log('Conectando à planilha Google...');
-    await doc.useServiceAccountAuth(credentials);
+    await doc.useServiceAccountAuth({
+      client_email: credentials.client_email,
+      private_key: credentials.private_key.replace(/\\n/g, '\n')
+    });
     await doc.loadInfo();
     planilhaCarregada = true;
     console.log(`✅ Planilha "${doc.title}" conectada com sucesso!`);
     
-    await verificarEEnviarLembretes();
+    // Só executa verificação se não estiver no Render na primeira inicialização
+    if (process.env.NODE_ENV !== 'production') {
+      await verificarEEnviarLembretes();
+    } else {
+      console.log('Ambiente de produção - verificação de lembretes via cron apenas');
+    }
   } catch (error) {
     console.error('❌ Erro ao conectar planilha:', error.message);
     return;
@@ -386,8 +411,24 @@ app.get('/', (req, res) => {
     status: 'Bot Jailton rodando',
     whatsapp: status,
     planilha: planilhaCarregada ? '✅ Conectada' : '⏳ Conectando...',
+    uptime: Math.floor(process.uptime()),
+    environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString()
   });
+});
+
+// Endpoint para forçar verificação manual (apenas para autorizados)
+app.get('/verificar', async (req, res) => {
+  if (!clientePronto || !planilhaCarregada) {
+    return res.status(503).json({ error: 'Serviços não estão prontos' });
+  }
+  
+  try {
+    await verificarEEnviarLembretes();
+    res.json({ message: 'Verificação de lembretes executada com sucesso' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/health', (req, res) => {

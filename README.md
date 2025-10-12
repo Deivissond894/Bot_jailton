@@ -14,6 +14,7 @@
    ```
    GOOGLE_CREDENTIALS={"type":"service_account",...} # JSON completo
    NODE_ENV=production
+   RENDER=true
    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
    PUPPETEER_CACHE_DIR=/tmp/.cache/puppeteer
    ```
